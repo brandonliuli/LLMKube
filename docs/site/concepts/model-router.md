@@ -177,6 +177,19 @@ Point any OpenAI-compatible client at that URL and it just works. The proxy serv
 
 The two Anthropic routes are placed, balanced and session-bound exactly like chat completions, and headers such as `anthropic-version` and `anthropic-beta` pass through. The backend must serve them itself: vLLM does natively; a backend that does not returns its own `404`, which reaches the client unchanged and does not count against the backend. Token budgets charge Anthropic responses from their own usage fields (cached input included), and errors the router itself returns on these routes use the Anthropic error shape.
 
+`GET /v1/models` lists each backend by its `displayName`, else its `name`. Coding clients read this list to decide whether a model takes images and how much context it holds, so a backend can declare both with `modelInfo`:
+
+```yaml
+  backends:
+    - name: glm-5-3-flash
+      inferenceServiceRef: {name: glm-5-3-flash}
+      modelInfo:
+        inputModalities: [text, image]
+        contextLength: 524288
+```
+
+That backend's entry then carries `"context_length": 524288` and an OpenRouter-style `architecture` block, `{"modality": "text+image->text", "input_modalities": ["text", "image"], "output_modalities": ["text"]}`. When only one side of the modality pair is set, the other defaults to `text`. A backend without `modelInfo` publishes the bare entry. The router doesn't enforce `modelInfo`, so keep it in step with what the backend serves: a vLLM backend started with `--limit-mm-per-prompt '{"image":0}'` rejects images whatever the list says. `modelInfo` applies to the Proxy data plane only.
+
 Headers that change routing:
 
 | Header | Effect |

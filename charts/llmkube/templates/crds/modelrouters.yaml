@@ -410,6 +410,51 @@ spec:
                           type: string
                       type: object
                       x-kubernetes-map-type: atomic
+                    modelInfo:
+                      description: |-
+                        ModelInfo describes what this backend's model accepts and how much
+                        context it holds. The proxy publishes it on the backend's /v1/models
+                        entry, where clients decide whether to send images and how to size
+                        their context. Informational only: the proxy does not enforce it.
+                        Applies to the Proxy data plane only.
+                      properties:
+                        contextLength:
+                          description: ContextLength is the model's context window
+                            in tokens.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        inputModalities:
+                          description: |-
+                            InputModalities the model accepts. When only OutputModalities is set,
+                            this defaults to ["text"].
+                          items:
+                            enum:
+                            - text
+                            - image
+                            - audio
+                            - video
+                            - file
+                            type: string
+                          maxItems: 5
+                          type: array
+                          x-kubernetes-list-type: set
+                        outputModalities:
+                          description: |-
+                            OutputModalities the model produces. When only InputModalities is set,
+                            this defaults to ["text"].
+                          items:
+                            enum:
+                            - text
+                            - image
+                            - audio
+                            - video
+                            - file
+                            type: string
+                          maxItems: 5
+                          type: array
+                          x-kubernetes-list-type: set
+                      type: object
                     name:
                       description: |-
                         Name is the stable identifier used by rules and observability labels.

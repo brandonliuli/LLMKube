@@ -217,6 +217,14 @@ type RouterBackend struct {
 	// +optional
 	DisplayName string `json:"displayName,omitempty"`
 
+	// ModelInfo describes what this backend's model accepts and how much
+	// context it holds. The proxy publishes it on the backend's /v1/models
+	// entry, where clients decide whether to send images and how to size
+	// their context. Informational only: the proxy does not enforce it.
+	// Applies to the Proxy data plane only.
+	// +optional
+	ModelInfo *RouterBackendModelInfo `json:"modelInfo,omitempty"`
+
 	// InferenceServiceRef references an in-cluster InferenceService.
 	// Mutually exclusive with External.
 	// +optional
@@ -297,6 +305,31 @@ type RouterBackend struct {
 	// P99 envelopes (in-cluster vLLM vs Anthropic global LB).
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
+// RouterBackendModelInfo is the client-facing model metadata a backend
+// publishes on /v1/models.
+type RouterBackendModelInfo struct {
+	// InputModalities the model accepts. When only OutputModalities is set,
+	// this defaults to ["text"].
+	// +kubebuilder:validation:MaxItems=5
+	// +kubebuilder:validation:items:Enum=text;image;audio;video;file
+	// +listType=set
+	// +optional
+	InputModalities []string `json:"inputModalities,omitempty"`
+
+	// OutputModalities the model produces. When only InputModalities is set,
+	// this defaults to ["text"].
+	// +kubebuilder:validation:MaxItems=5
+	// +kubebuilder:validation:items:Enum=text;image;audio;video;file
+	// +listType=set
+	// +optional
+	OutputModalities []string `json:"outputModalities,omitempty"`
+
+	// ContextLength is the model's context window in tokens.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	ContextLength *int64 `json:"contextLength,omitempty"`
 }
 
 // ExternalProvider describes an upstream LLM API outside the cluster.

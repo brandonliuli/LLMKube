@@ -1094,6 +1094,44 @@ func TestCompileRouterConfigCopiesDisplayName(t *testing.T) {
 	}
 }
 
+// TestCompileRouterConfigCopiesModelInfo pins that a backend's modelInfo
+// reaches the proxy wire config (#2248), and that a backend without one
+// compiles to nil so /v1/models keeps the bare entry.
+func TestCompileRouterConfigCopiesModelInfo(t *testing.T) {
+	mr := canonicalModelRouter()
+	contextLength := int64(262144)
+	mr.Spec.Backends[0].ModelInfo = &inferencev1alpha1.RouterBackendModelInfo{
+		InputModalities:  []string{"text", "image"},
+		OutputModalities: []string{"text"},
+		ContextLength:    &contextLength,
+	}
+
+	isvc := &inferencev1alpha1.InferenceService{
+		ObjectMeta: metav1.ObjectMeta{Name: "qwen3-coder", Namespace: testBuilderNs},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "anthropic-key", Namespace: testBuilderNs},
+		Data:       map[string][]byte{"ANTHROPIC_API_KEY": []byte("test")},
+	}
+	r := newRouterReconcilerForTest(t, mr, isvc, secret)
+	compiled, err := r.compileRouterConfig(context.Background(), mr)
+	if err != nil {
+		t.Fatalf("compileRouterConfig: %v", err)
+	}
+	var cfg router.Config
+	if err := json.Unmarshal(compiled.JSON, &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	info := cfg.Backends[0].ModelInfo
+	if info == nil || !reflect.DeepEqual(info.InputModalities, []string{"text", "image"}) ||
+		!reflect.DeepEqual(info.OutputModalities, []string{"text"}) || info.ContextLength != 262144 {
+		t.Errorf("backend modelInfo = %+v, want input=[text image] output=[text] contextLength=262144", info)
+	}
+	if cfg.Backends[1].ModelInfo != nil {
+		t.Errorf("backend without modelInfo = %+v, want nil", cfg.Backends[1].ModelInfo)
+	}
+}
+
 // TestRouterServiceBuilder confirms ClusterIP default, the canonical selector
 // label, and that the data-plane Service carries only the inference port. The
 // admin/metrics listener lives on the separate internal Service, so it can

@@ -192,6 +192,7 @@ func (r *ModelRouterReconciler) resolveBackend(
 		wire.Timeout = b.Timeout.Duration
 	}
 	wire.CostPerMillionTokens = translateTokenCost(b.CostPerMillionTokens)
+	wire.ModelInfo = translateModelInfo(b.ModelInfo)
 
 	switch {
 	case b.InferenceServiceRef != nil:
@@ -605,6 +606,20 @@ func translateTokenCost(c *inferencev1alpha1.TokenCost) *router.TokenCost {
 		PromptUSD:     parseUSD(c.PromptUSD),
 		CompletionUSD: parseUSD(c.CompletionUSD),
 	}
+}
+
+func translateModelInfo(m *inferencev1alpha1.RouterBackendModelInfo) *router.ModelInfo {
+	if m == nil {
+		return nil
+	}
+	out := &router.ModelInfo{
+		InputModalities:  append([]string(nil), m.InputModalities...),
+		OutputModalities: append([]string(nil), m.OutputModalities...),
+	}
+	if m.ContextLength != nil {
+		out.ContextLength = *m.ContextLength
+	}
+	return out
 }
 
 // parseUSD parses a validated non-negative decimal string. Malformed input
