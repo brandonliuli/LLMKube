@@ -192,7 +192,20 @@ func (r *ModelRouterReconciler) resolveBackend(
 		wire.Timeout = b.Timeout.Duration
 	}
 	wire.CostPerMillionTokens = translateTokenCost(b.CostPerMillionTokens)
-	info, err := r.compileModelInfo(ctx, mr, b)
+	var isvc *inferencev1alpha1.InferenceService
+	if b.InferenceServiceRef != nil {
+		obj := &inferencev1alpha1.InferenceService{}
+		err := r.Get(ctx, types.NamespacedName{Name: b.InferenceServiceRef.Name, Namespace: mr.Namespace}, obj)
+		switch {
+		case err == nil:
+			isvc = obj
+		case !errors.IsNotFound(err) && b.ModelInfo != nil:
+			// Only modelInfo fails the compile on a lookup error, as
+			// compileBalancing does; without it the backend compiles as before.
+			return wire, status, fmt.Errorf("get InferenceService %s for backend %q modelInfo: %w", b.InferenceServiceRef.Name, b.Name, err)
+		}
+	}
+	info, err := r.compileModelInfo(ctx, mr, b, isvc)
 	if err != nil {
 		return wire, status, err
 	}
@@ -201,7 +214,7 @@ func (r *ModelRouterReconciler) resolveBackend(
 	switch {
 	case b.InferenceServiceRef != nil:
 		wire.InferenceService = b.InferenceServiceRef.Name
-		wire.ServedModel = r.localBackendServedModel(ctx, mr.Namespace, b.InferenceServiceRef.Name)
+		wire.ServedModel = r.localBackendServedModel(ctx, mr.Namespace, isvc)
 		if wire.Tier == "" {
 			wire.Tier = backendTierLocal
 			status.Tier = backendTierLocal
@@ -347,10 +360,10 @@ func (r *ModelRouterReconciler) resolveInferenceServiceAddress(
 // the address path already reports the backend unhealthy.
 func (r *ModelRouterReconciler) localBackendServedModel(
 	ctx context.Context,
-	namespace, name string,
+	namespace string,
+	isvc *inferencev1alpha1.InferenceService,
 ) string {
-	isvc := &inferencev1alpha1.InferenceService{}
-	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, isvc); err != nil {
+	if isvc == nil {
 		return ""
 	}
 	switch runtimeNameLabel(isvc) {
@@ -621,12 +634,14 @@ const modelRouterReasonModelInfoMismatch = "ModelInfoMismatch"
 // without it keeps its config hash and its proxy does not roll. Fields left
 // unset come from what the controller already knows: a "vision" capability
 // means text and image input, other modalities default to text, and the
-// context length comes from the InferenceService. A lookup error other than NotFound is returned, as in
-// compileBalancing, so a transient failure cannot change the hash twice.
+// context length comes from the InferenceService (nil when the backend has
+// none or it is not found). A lookup error other than NotFound is returned,
+// as in compileBalancing, so a transient failure cannot change the hash twice.
 func (r *ModelRouterReconciler) compileModelInfo(
 	ctx context.Context,
 	mr *inferencev1alpha1.ModelRouter,
 	b *inferencev1alpha1.RouterBackend,
+	isvc *inferencev1alpha1.InferenceService,
 ) (*router.ModelInfo, error) {
 	m := b.ModelInfo
 	if m == nil {
@@ -654,17 +669,41 @@ func (r *ModelRouterReconciler) compileModelInfo(
 	if len(out.OutputModalities) == 0 {
 		out.OutputModalities = []string{"text"}
 	}
-	if out.ContextLength == 0 && b.InferenceServiceRef != nil {
-		isvc := &inferencev1alpha1.InferenceService{}
-		err := r.Get(ctx, types.NamespacedName{Name: b.InferenceServiceRef.Name, Namespace: mr.Namespace}, isvc)
-		switch {
-		case err == nil:
+	if out.ContextLength == 0 && isvc != nil {
+		agent, err := r.runtimeSetByMetalAgent(ctx, isvc)
+		if err != nil {
+			return nil, fmt.Errorf("backend %q modelInfo: %w", b.Name, err)
+		}
+		if !agent {
 			out.ContextLength = servedContextLength(isvc)
-		case !errors.IsNotFound(err):
-			return nil, fmt.Errorf("get InferenceService %s for backend %q modelInfo: %w", b.InferenceServiceRef.Name, b.Name, err)
 		}
 	}
 	return out, nil
+}
+
+// runtimeSetByMetalAgent reports whether an unset runtime is left to the
+// metal-agent's --runtime flag, which may not be llama.cpp. A missing Model
+// also reports true, so its context length is not guessed.
+func (r *ModelRouterReconciler) runtimeSetByMetalAgent(
+	ctx context.Context,
+	isvc *inferencev1alpha1.InferenceService,
+) (bool, error) {
+	if isvc.Spec.Runtime != "" {
+		return false, nil
+	}
+	if isvc.Spec.ModelRef == "" {
+		return true, nil
+	}
+	model := &inferencev1alpha1.Model{}
+	err := r.Get(ctx, types.NamespacedName{Name: isvc.Spec.ModelRef, Namespace: isvc.Namespace}, model)
+	switch {
+	case err == nil:
+		return isMetalModel(model), nil
+	case errors.IsNotFound(err):
+		return true, nil
+	default:
+		return false, fmt.Errorf("get Model %s: %w", isvc.Spec.ModelRef, err)
+	}
 }
 
 // backendCapabilityVision is the RouterBackend capability that marks a
@@ -711,6 +750,8 @@ func servedContextLength(isvc *inferencev1alpha1.InferenceService) int64 {
 		}
 		return n
 	}
+	// llamacpp-router loads models on demand, each with its own context, so
+	// there is no single length to publish.
 	return 0
 }
 

@@ -200,14 +200,7 @@ func (p *Proxy) handleModels(w http.ResponseWriter, _ *http.Request) {
 		m := model{ID: publishedID(b), Object: "model", Created: now, OwnedBy: owned}
 		if info := b.ModelInfo; info != nil {
 			m.ContextLength = info.ContextLength
-			if len(info.InputModalities) > 0 || len(info.OutputModalities) > 0 {
-				in, out := info.InputModalities, info.OutputModalities
-				if len(in) == 0 {
-					in = []string{"text"}
-				}
-				if len(out) == 0 {
-					out = []string{"text"}
-				}
+			if in, out := info.InputModalities, info.OutputModalities; len(in) > 0 && len(out) > 0 {
 				m.Architecture = &architecture{
 					Modality:         strings.Join(in, "+") + "->" + strings.Join(out, "+"),
 					InputModalities:  in,

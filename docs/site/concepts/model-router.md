@@ -193,7 +193,7 @@ That backend's entry then carries `"context_length"` and an OpenRouter-style `ar
 |---|---|
 | `inputModalities` | `[text, image]` if the backend's `capabilities` include `vision`, else `[text]` |
 | `outputModalities` | `[text]` |
-| `contextLength` | vLLM: `vllmConfig.maxModelLen`, or `--max-model-len` in `extraArgs`. llama.cpp: `contextSize`, divided across `parallelSlots` when they are set, because llama-server then splits the context between slots. Other runtimes, and llama.cpp `extraArgs` that set `--ctx-size`, `--parallel` or `--kv-unified`, publish no context length. |
+| `contextLength` | vLLM: `vllmConfig.maxModelLen`, or `--max-model-len` in `extraArgs`. llama.cpp: `contextSize`, divided across `parallelSlots` when they are set, because llama-server then splits the context between slots. An unset `runtime` counts as llama.cpp except on a Metal Model, where the metal-agent picks the runtime. Other runtimes, and llama.cpp `extraArgs` that set `--ctx-size`, `--parallel` or `--kv-unified`, publish no context length. |
 
 A value you set wins. If `inputModalities` leaves out `image` while `capabilities` lists `vision`, the controller records a `ModelInfoMismatch` warning event, and `/v1/models` publishes `inputModalities`. A backend without `modelInfo` publishes the bare entry, as before.
 

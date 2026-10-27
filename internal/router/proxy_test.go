@@ -429,8 +429,9 @@ func TestProxyModelsListedIDsRoute(t *testing.T) {
 func TestProxyModelsModelInfo(t *testing.T) {
 	h := newProxyHarness(t)
 	h.cfg.Backends[0].ModelInfo = &ModelInfo{
-		InputModalities: []string{"text", "image"},
-		ContextLength:   524288,
+		InputModalities:  []string{"text", "image"},
+		OutputModalities: []string{"text"},
+		ContextLength:    524288,
 	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()

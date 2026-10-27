@@ -1115,6 +1115,7 @@ func TestCompileRouterConfigModelInfo(t *testing.T) {
 		capabilities []string
 		info         *inferencev1alpha1.RouterBackendModelInfo
 		isvc         *inferencev1alpha1.InferenceServiceSpec
+		accelerator  string // seeds the referenced Model when set
 		want         *router.ModelInfo
 	}{
 		{
@@ -1157,10 +1158,31 @@ func TestCompileRouterConfigModelInfo(t *testing.T) {
 			want: &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}, ContextLength: 131072},
 		},
 		{
-			name: "llama.cpp splits contextSize across explicit parallelSlots",
+			name:        "llama.cpp splits contextSize across explicit parallelSlots",
+			info:        &inferencev1alpha1.RouterBackendModelInfo{},
+			isvc:        &inferencev1alpha1.InferenceServiceSpec{ContextSize: i32(32768), ParallelSlots: i32(4)},
+			accelerator: "cuda",
+			want:        &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}, ContextLength: 8192},
+		},
+		{
+			name:        "an unset runtime on a Metal model publishes no context length",
+			info:        &inferencev1alpha1.RouterBackendModelInfo{},
+			isvc:        &inferencev1alpha1.InferenceServiceSpec{ContextSize: i32(32768), ParallelSlots: i32(4)},
+			accelerator: "metal",
+			want:        &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}},
+		},
+		{
+			name:        "an explicit llamacpp runtime on a Metal model splits contextSize",
+			info:        &inferencev1alpha1.RouterBackendModelInfo{},
+			isvc:        &inferencev1alpha1.InferenceServiceSpec{Runtime: "llamacpp", ContextSize: i32(32768), ParallelSlots: i32(4)},
+			accelerator: "metal",
+			want:        &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}, ContextLength: 8192},
+		},
+		{
+			name: "an unset runtime with no Model found publishes no context length",
 			info: &inferencev1alpha1.RouterBackendModelInfo{},
-			isvc: &inferencev1alpha1.InferenceServiceSpec{ContextSize: i32(32768), ParallelSlots: i32(4)},
-			want: &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}, ContextLength: 8192},
+			isvc: &inferencev1alpha1.InferenceServiceSpec{ModelRef: "missing", ContextSize: i32(32768)},
+			want: &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}},
 		},
 		{
 			name: "llama.cpp with parallelSlots on auto keeps the whole contextSize",
@@ -1169,10 +1191,11 @@ func TestCompileRouterConfigModelInfo(t *testing.T) {
 			want: &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}, ContextLength: 32768},
 		},
 		{
-			name: "llama.cpp extraArgs that set the slot flags publish no context length",
-			info: &inferencev1alpha1.RouterBackendModelInfo{},
-			isvc: &inferencev1alpha1.InferenceServiceSpec{ContextSize: i32(32768), ExtraArgs: []string{"-np", "4", "--kv-unified"}},
-			want: &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}},
+			name:        "llama.cpp extraArgs that set the slot flags publish no context length",
+			info:        &inferencev1alpha1.RouterBackendModelInfo{},
+			isvc:        &inferencev1alpha1.InferenceServiceSpec{ContextSize: i32(32768), ExtraArgs: []string{"-np", "4", "--kv-unified"}},
+			accelerator: "cuda",
+			want:        &router.ModelInfo{InputModalities: []string{"text"}, OutputModalities: []string{"text"}},
 		},
 		{
 			name: "a runtime without a known flag publishes no context length",
@@ -1201,7 +1224,15 @@ func TestCompileRouterConfigModelInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "anthropic-key", Namespace: testBuilderNs},
 				Data:       map[string][]byte{"ANTHROPIC_API_KEY": []byte("test")},
 			}
-			r := newRouterReconcilerForTest(t, mr, isvc, secret)
+			objs := []client.Object{isvc, secret}
+			if tt.accelerator != "" {
+				isvc.Spec.ModelRef = "qwen3-coder-model"
+				objs = append(objs, &inferencev1alpha1.Model{
+					ObjectMeta: metav1.ObjectMeta{Name: "qwen3-coder-model", Namespace: testBuilderNs},
+					Spec:       inferencev1alpha1.ModelSpec{Hardware: &inferencev1alpha1.HardwareSpec{Accelerator: tt.accelerator}},
+				})
+			}
+			r := newRouterReconcilerForTest(t, mr, objs...)
 			compiled, err := r.compileRouterConfig(context.Background(), mr)
 			if err != nil {
 				t.Fatalf("compileRouterConfig: %v", err)

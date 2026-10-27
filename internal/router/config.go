@@ -247,7 +247,8 @@ type TokenCost struct {
 }
 
 // ModelInfo is client-facing model metadata, compiled from
-// ModelRouter.spec.backends[].modelInfo.
+// ModelRouter.spec.backends[].modelInfo. The controller fills both modality
+// lists, so the proxy publishes them as they are.
 type ModelInfo struct {
 	InputModalities  []string `json:"inputModalities,omitempty"`
 	OutputModalities []string `json:"outputModalities,omitempty"`
