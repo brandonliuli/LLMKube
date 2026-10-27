@@ -221,7 +221,8 @@ type RouterBackend struct {
 	// context it holds. The proxy publishes it on the backend's /v1/models
 	// entry, where clients decide whether to send images and how to size
 	// their context. Informational only: the proxy does not enforce it.
-	// Applies to the Proxy data plane only.
+	// Unset, the entry carries only the model id. Applies to the Proxy data
+	// plane only; the Gateway and AgentGateway data planes ignore it.
 	// +optional
 	ModelInfo *RouterBackendModelInfo `json:"modelInfo,omitempty"`
 
@@ -310,23 +311,27 @@ type RouterBackend struct {
 // RouterBackendModelInfo is the client-facing model metadata a backend
 // publishes on /v1/models.
 type RouterBackendModelInfo struct {
-	// InputModalities the model accepts. When only OutputModalities is set,
-	// this defaults to ["text"].
+	// InputModalities the model accepts. When unset, a backend whose
+	// capabilities include "vision" publishes ["text", "image"], and any
+	// other backend ["text"]. When set, it wins over capabilities.
 	// +kubebuilder:validation:MaxItems=5
 	// +kubebuilder:validation:items:Enum=text;image;audio;video;file
 	// +listType=set
 	// +optional
 	InputModalities []string `json:"inputModalities,omitempty"`
 
-	// OutputModalities the model produces. When only InputModalities is set,
-	// this defaults to ["text"].
+	// OutputModalities the model produces. Defaults to ["text"].
 	// +kubebuilder:validation:MaxItems=5
 	// +kubebuilder:validation:items:Enum=text;image;audio;video;file
 	// +listType=set
 	// +optional
 	OutputModalities []string `json:"outputModalities,omitempty"`
 
-	// ContextLength is the model's context window in tokens.
+	// ContextLength is the context window one request gets, in tokens. When
+	// unset, the controller fills it from the InferenceService:
+	// vllmConfig.maxModelLen (or --max-model-len in extraArgs) for vLLM, and
+	// contextSize divided across parallelSlots for llama.cpp. Other runtimes,
+	// and llama.cpp extraArgs that set those flags, publish none.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	ContextLength *int64 `json:"contextLength,omitempty"`
